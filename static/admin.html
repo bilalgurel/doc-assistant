@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Assistant - Admin</title>
+<style>
+  body { margin:0; font:14px/1.5 system-ui, sans-serif; background:#f6f7f9; color:#1c2330; }
+  .wrap { max-width:1100px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:18px; } h2 { font-size:15px; margin-top:28px; }
+  input, textarea { font:inherit; padding:8px 10px; border:1px solid #e2e5ea; border-radius:6px; }
+  textarea { width:100%; height:200px; font-family:ui-monospace, monospace; font-size:13px; }
+  button { padding:8px 16px; border:0; border-radius:6px; background:#2f5fd0; color:#fff; font:inherit; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e2e5ea; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e2e5ea; vertical-align:top; }
+  th { font-size:12px; color:#667085; }
+  td.num { text-align:right; white-space:nowrap; }
+  .status { color:#667085; margin-left:10px; }
+  .refused { color:#b54708; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Admin</h1>
+  <p>
+    <input id="token" type="password" placeholder="Admin token">
+    <button id="load">Load</button>
+    <span id="status" class="status"></span>
+  </p>
+
+  <h2>System prompt</h2>
+  <p>Use <code>{refusal}</code> where the fixed "not in your documents" message should appear.</p>
+  <textarea id="prompt"></textarea>
+  <p><button id="save">Save prompt</button></p>
+
+  <h2>Question log</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Customer</th><th>Question</th><th>Answer</th><th>Sources</th><th>Tokens in/out</th><th>Cost (USD)</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<script>
+const status = document.getElementById('status');
+const headers = () => ({ 'X-Admin-Token': document.getElementById('token').value, 'Content-Type': 'application/json' });
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: headers() });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Request failed');
+  }
+  return res.json();
+}
+
+function cell(text, cls) {
+  const td = document.createElement('td');
+  td.textContent = text;
+  if (cls) td.className = cls;
+  return td;
+}
+
+async function load() {
+  try {
+    document.getElementById('prompt').value = (await api('/admin/api/prompt')).prompt;
+    const { rows } = await api('/admin/api/log');
+    const tbody = document.getElementById('rows');
+    tbody.replaceChildren();
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      const sources = r.sources.map(s => s.source + (s.page ? ' p.' + s.page : '')).join('; ');
+      tr.append(
+        cell(r.ts), cell(r.customer_id), cell(r.question),
+        cell(r.answer, r.refused ? 'refused' : ''), cell(sources),
+        cell(r.input_tokens + ' / ' + r.output_tokens, 'num'), cell(r.cost_usd.toFixed(4), 'num'),
+      );
+      tbody.append(tr);
+    }
+    status.textContent = rows.length + ' log rows loaded';
+  } catch (e) { status.textContent = e.message; }
+}
+
+document.getElementById('load').addEventListener('click', load);
+document.getElementById('save').addEventListener('click', async () => {
+  try {
+    await api('/admin/api/prompt', { method: 'PUT', body: JSON.stringify({ prompt: document.getElementById('prompt').value }) });
+    status.textContent = 'Prompt saved';
+  } catch (e) { status.textContent = e.message; }
+});
+</script>
+</body>
+</html>

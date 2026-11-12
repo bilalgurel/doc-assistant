@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Assistant</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --line:#e2e5ea; --text:#1c2330; --muted:#667085; --accent:#2f5fd0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  .wrap { max-width:760px; margin:0 auto; padding:24px 16px; display:flex; flex-direction:column; height:100vh; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+  h1 { font-size:18px; margin:0; }
+  header label { color:var(--muted); font-size:13px; }
+  header input { width:120px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; }
+  #messages { flex:1; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .msg { margin-bottom:16px; }
+  .msg .who { font-size:12px; color:var(--muted); margin-bottom:2px; }
+  .msg .body { white-space:pre-wrap; }
+  .msg.user .body { background:#eef2fb; display:inline-block; padding:8px 12px; border-radius:10px; }
+  details { margin-top:8px; font-size:13px; }
+  summary { cursor:pointer; color:var(--accent); }
+  .source { border-left:3px solid var(--line); padding:4px 10px; margin:8px 0; color:var(--muted); }
+  .source b { color:var(--text); }
+  .meta { font-size:12px; color:var(--muted); margin-top:4px; }
+  form { display:flex; gap:8px; margin-top:12px; }
+  form input { flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  button { padding:10px 18px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .empty { color:var(--muted); text-align:center; margin-top:60px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Document Assistant</h1>
+    <label>Customer <input id="customer" value="demo"></label>
+  </header>
+  <div id="messages"><p class="empty">Ask a question about your documents.</p></div>
+  <form id="form">
+    <input id="question" placeholder="Type your question..." autocomplete="off" required>
+    <button id="send">Ask</button>
+  </form>
+</div>
+<script>
+const messages = document.getElementById('messages');
+const form = document.getElementById('form');
+const input = document.getElementById('question');
+const send = document.getElementById('send');
+
+function addMessage(who, cls) {
+  const empty = messages.querySelector('.empty');
+  if (empty) empty.remove();
+  const msg = document.createElement('div');
+  msg.className = 'msg ' + cls;
+  const label = document.createElement('div');
+  label.className = 'who';
+  label.textContent = who;
+  const body = document.createElement('div');
+  body.className = 'body';
+  msg.append(label, body);
+  messages.append(msg);
+  messages.scrollTop = messages.scrollHeight;
+  return { msg, body };
+}
+
+function renderSources(msg, sources) {
+  if (!sources.length) return;
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Sources (' + sources.length + ')';
+  details.append(summary);
+  for (const s of sources) {
+    const div = document.createElement('div');
+    div.className = 'source';
+    const title = document.createElement('b');
+    title.textContent = '[' + s.n + '] ' + s.source + (s.page ? ', page ' + s.page : '');
+    const excerpt = document.createElement('div');
+    excerpt.textContent = s.excerpt;
+    div.append(title, excerpt);
+    details.append(div);
+  }
+  msg.append(details);
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = '';
+  send.disabled = true;
+  addMessage('You', 'user').body.textContent = question;
+  const { msg, body } = addMessage('Assistant', 'bot');
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer_id: document.getElementById('customer').value.trim(), question }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      body.textContent = err.detail || 'Something went wrong.';
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const event = (block.match(/^event: (.+)$/m) || [])[1];
+        const data = JSON.parse((block.match(/^data: (.+)$/m) || [])[1] || '{}');
+        if (event === 'token') body.textContent += data.text;
+        else if (event === 'sources') renderSources(msg, data.sources);
+        else if (event === 'error') body.textContent = data.message;
+        messages.scrollTop = messages.scrollHeight;
+      }
+    }
+  } catch (err) {
+    body.textContent = 'Could not reach the server.';
+  } finally {
+    send.disabled = false;
+    input.focus();
+  }
+});
+</script>
+</body>
+</html>
