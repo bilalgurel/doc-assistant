@@ -1,3 +1,5 @@
+**Demo video (2 min):** https://youtu.be/p-JZj0HeIOY
+
 # Document Assistant
 
 An AI assistant that answers a customer's questions using **only their own documents**, shows the source of every answer, and says "That isn't in your documents." instead of guessing.
@@ -23,7 +25,7 @@ Built with Python, FastAPI and ChromaDB. Works with Google Gemini or Anthropic C
 Requires Python 3.10 or newer.
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/bilalgurel/doc-assistant.git
 cd doc-assistant
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
